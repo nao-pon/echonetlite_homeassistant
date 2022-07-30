@@ -4,7 +4,6 @@ set_on_timer_time:
     entity:
       domain: sensor
       integration: echonetlite
-      description: 'On-timer time sensor entity ID.'
       example: '"sensor.echonetlite_set_value_of_on_timer_time"'
     device:
       integration: echonetlite
@@ -22,7 +21,6 @@ set_value_int_1b:
     entity:
       domain: sensor
       integration: echonetlite
-      description: 'Integer sensor entity ID.'
       example: '"sensor.echonetlite_set_value_of_hot_water_temperature"'
   fields:
     value:
