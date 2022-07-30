@@ -8,7 +8,6 @@ set_on_timer_time:
       example: '"sensor.echonetlite_set_value_of_on_timer_time"'
     device:
       integration: echonetlite
-      description: 'ECHONET Lite device ID.'
   fields:
     timer_time:
       description: 'Time notation in "hour:minute" format.'
