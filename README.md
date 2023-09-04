@@ -4,6 +4,7 @@
 [![License][license-shield]](LICENSE)
 [![hacs][hacsbadge]][hacs]
 ![Project Maintenance][maintenance-shield]
+([日本語](https://github.com/scottyphillips/echonetlite_homeassistant/blob/master/README.ja.md))
 
 A Home Assistant custom component for use with ECHONETLite compatible devices.
 This custom component makes use of the 'pychonet'
@@ -84,6 +85,11 @@ compatible ECHONETLite Devices:
     * Full support for Home Assistant Energy Dashboard including solar production and grid consumption.
     * Loads of interesting sensors.
 
+* Low voltage smart meter (B route service)
+     * Require Wi-SUN <-> Ethernet/Wifi bridge
+          * [nao-pon/python-echonet-lite](https://github.com/nao-pon/python-echonet-lite)
+          * etc.
+
 ## Installation - Enable ECHONET protocol
 This Custom Component was originally designed for the Mitsubishi MAC-568IF-E WiFi
 Adaptor, a basic guide for enabling ECHONETlite is provided below.
@@ -95,21 +101,25 @@ the 'ECHONET lite' protocol under the 'edit unit' settings.
 
 Many other products will work using this custom-component, but they must correctly support the 'ECHONET lite' protocol. The author cannot assist with enabling ECHONET Lite for other vendor products.
 
-## Installation - HACS
-1. Look up ECHONETLite in integrations
-2. Click 'install'
+## Installation
+### Install using HACS
+1. Look up 'ECHONETLite Platform' in integrations
+2. Click 'Download', leave the version be and click 'Download' again.
+3. Restart Home Assistant
 
-## Installation - Home Assistant
+### Install manually
 1. Using the tool of choice open the directory (folder) for your HA configuration (where you find `configuration.yaml`).
 2. If you do not have a `custom_components` directory (folder) there, you need to create it.
 3. In the `custom_components` directory (folder) create a new folder called `echonetlite`.
 4. Download _all_ the files from the `custom_components/echonetlite/` directory (folder) in this repository.
 5. Place the files you downloaded in the new directory (folder) you created.
 6. Restart Home Assistant and clear your browser cache
-7. Go to configuration -> integrations -> ADD INTEGRATION.
-5. Select the 'echonetlite' integration. Enter your IP address in the host field, and give the platform a name.
-6. Platform will automatically configure any supported platforms e.g. climate, sensor, switch, fan, select.
-7. If you have additional devices to configure then repeat step 4.
+
+## Setup
+1. In Home Assistant, go to Settings -> Devices & Services -> ADD INTEGRATION.
+2. Select the 'ECHONET Lite' integration. Enter the IP address of the HVAC unit in the host field, and give the platform a name.
+3. Platform will automatically configure any supported platforms e.g. climate, sensor, switch, fan, select.
+4. If you have additional devices to configure then repeat step 1.
 
 ## Configuring Options for Fan and swing mode settings for supported HVAC and Air Purifiers.
 Once you have added the integration, you can go back to configuration -> integrations
@@ -137,7 +147,6 @@ Some ideas in his own repo got implemented in my own code.
 
 Thanks to Futomi Hatano for open sourcing a high quality and well documented ECHONET Lite library in Node JS that formed the basis of the 'Pychonet' library.
 (https://github.com/futomi/node-echonet-lite)
-
 
 ## License
 
