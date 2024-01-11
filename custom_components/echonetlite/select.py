@@ -78,6 +78,8 @@ async def async_setup_entry(hass, config, async_add_entities, discovery_info=Non
 
 
 class EchonetSelect(SelectEntity):
+    _attr_translation_key = DOMAIN
+
     def __init__(self, hass, connector, config, code, options, name=None):
         """Initialize the select."""
         self._connector = connector
@@ -133,7 +135,10 @@ class EchonetSelect(SelectEntity):
 
     async def async_update(self):
         """Retrieve latest state."""
-        await self._connector.async_update()
+        try:
+            await self._connector.async_update()
+        except TimeoutError:
+            pass
 
     def update_attr(self):
         self._attr_options = list(self._options.keys())

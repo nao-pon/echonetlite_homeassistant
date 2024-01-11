@@ -4,11 +4,8 @@ from pychonet.GeneralLighting import ENL_STATUS, ENL_BRIGHTNESS, ENL_COLOR_TEMP
 
 from pychonet.lib.eojx import EOJX_CLASS
 
-from homeassistant.components.light import LightEntity
+from homeassistant.components.light import LightEntity, ColorMode
 from homeassistant.components.light import (
-    COLOR_MODE_ONOFF,
-    COLOR_MODE_BRIGHTNESS,
-    COLOR_MODE_COLOR_TEMP,
     ATTR_BRIGHTNESS,
     ATTR_COLOR_TEMP,
 )
@@ -28,9 +25,10 @@ async def async_setup_entry(hass, config_entry, async_add_devices):
     """Set up entry."""
     entities = []
     for entity in hass.data[DOMAIN][config_entry.entry_id]:
-        if (
-            entity["instance"]["eojgc"] == 0x02 and entity["instance"]["eojcc"] == 0x90
-        ):  # General Lighting
+        eojgc = entity["instance"]["eojgc"]
+        eojcc = entity["instance"]["eojcc"]
+        if eojgc == 0x02 and eojcc in (0x90, 0x91):
+            # General Lighting (0x90), Mono Functional Lighting (0x91)
             _LOGGER.debug("Configuring ECHONETlite Light entity")
             entities.append(EchonetLight(config_entry.title, entity["echonetlite"]))
     _LOGGER.debug(f"Number of light devices to be added: {len(entities)}")
@@ -60,9 +58,9 @@ class EchonetLight(LightEntity):
         self._min_mireds = MIN_MIREDS
         self._max_mireds = MAX_MIREDS
         if ENL_BRIGHTNESS in list(self._connector._setPropertyMap):
-            self._supported_color_modes.add(COLOR_MODE_BRIGHTNESS)
+            self._supported_color_modes.add(ColorMode.BRIGHTNESS)
         if ENL_COLOR_TEMP in list(self._connector._setPropertyMap):
-            self._supported_color_modes.add(COLOR_MODE_COLOR_TEMP)
+            self._supported_color_modes.add(ColorMode.COLOR_TEMP)
 
         self._echonet_mireds = [
             "daylight_color",
@@ -77,7 +75,10 @@ class EchonetLight(LightEntity):
 
     async def async_update(self):
         """Get the latest state from the Light."""
-        await self._connector.async_update()
+        try:
+            await self._connector.async_update()
+        except TimeoutError:
+            pass
 
     @property
     def supported_features(self):
@@ -131,7 +132,7 @@ class EchonetLight(LightEntity):
 
         if (
             ATTR_BRIGHTNESS in kwargs
-            and COLOR_MODE_BRIGHTNESS in self._supported_color_modes
+            and ColorMode.BRIGHTNESS in self._supported_color_modes
         ):
             normalized_brightness = (
                 float(kwargs[ATTR_BRIGHTNESS]) / DEFAULT_BRIGHTNESS_SCALE
@@ -147,7 +148,7 @@ class EchonetLight(LightEntity):
 
         if (
             ATTR_COLOR_TEMP in kwargs
-            and COLOR_MODE_COLOR_TEMP in self._supported_color_modes
+            and ColorMode.COLOR_TEMP in self._supported_color_modes
         ):
             # bring the selected color to something we can calculate on
             color_scale = (
@@ -246,4 +247,7 @@ class EchonetLight(LightEntity):
             self._olddata = self._connector._update_data.copy()
             self.async_schedule_update_ha_state()
             if isPush:
-                await self._connector.async_update()
+                try:
+                    await self._connector.async_update()
+                except TimeoutError:
+                    pass

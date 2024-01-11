@@ -8,6 +8,7 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant import config_entries
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
@@ -26,6 +27,13 @@ from pychonet.lib.udpserver import UDPServer
 
 # from pychonet import Factory
 from pychonet import ECHONETAPIClient
+
+from pychonet.HomeAirConditioner import (
+    ENL_AIR_VERT,
+    ENL_AUTO_DIRECTION,
+    ENL_SWING_MODE,
+)
+
 from .const import (
     DOMAIN,
     USER_OPTIONS,
@@ -34,6 +42,7 @@ from .const import (
     MISC_OPTIONS,
     ENL_HVAC_MODE,
     CONF_OTHER_MODE,
+    OPTION_HA_UI_SWING,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -98,6 +107,49 @@ async def validate_input(
         raise ErrorConnect("cannot_connect")
     state = server._state[host]
     uid = state["uid"]
+
+    # check ip addr changed
+    if user_input.get("newhost"):
+        config_entry = None
+        old_host = None
+        entries = hass.config_entries.async_entries(DOMAIN)
+
+        for entry in entries:
+            instances = []
+            _data = entry.data
+            for _instance in _data.get("instances", []):
+                instance = _instance.copy()
+                if old_host or instance.get("uid") == uid:
+                    old_host = instance["host"]
+                    instance["host"] = host
+                instances.append(instance)
+            if old_host:
+                config_entry = entry
+                _LOGGER.debug(
+                    f"ECHONET registed node found uid is {uid}, conig entry id is {entry.entry_id}."
+                )
+                break
+
+        if old_host:
+            _LOGGER.debug(
+                f"ECHONET registed node IP changed from {old_host} to {host}."
+            )
+            _LOGGER.debug(f"New instances data is {instances}")
+            if server._state.get(old_host):
+                server._state[host] = server._state.pop(old_host)
+            hass.config_entries.async_update_entry(
+                config_entry, data={"instances": instances}
+            )
+
+            # Wait max 30 secs for entry loaded
+            for x in range(0, 300):
+                await asyncio.sleep(0.1)
+                if entry.state == ConfigEntryState.LOADED:
+                    await hass.config_entries.async_reload(entry.entry_id)
+                    break
+
+            raise ErrorIpChanged(host)
+
     manufacturer = state["manufacturer"]
     if not isinstance(manufacturer, str):
         # If unable to resolve the manufacturer,
@@ -263,13 +315,17 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     async def async_discover_newhost(hass, host):
-        _LOGGER.info(f"received newip discovery: {host}")
+        _LOGGER.debug(f"received newip discovery: {host}")
         if host not in _detected_hosts.keys():
             try:
-                instance_list = await validate_input(hass, {"host": host})
+                instance_list = await validate_input(
+                    hass, {"host": host, "newhost": True}
+                )
                 _LOGGER.debug(f"ECHONET Node detected in {host}")
             except ErrorConnect as e:
                 _LOGGER.debug(f"ECHONET Node Error Connect ({e})")
+            except ErrorIpChanged as e:
+                _LOGGER.debug(f"ECHONET Detected Node IP Changed to '{e}'")
             else:
                 if len(instance_list):
                     _detected_hosts.update({host: instance_list})
@@ -278,6 +334,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class ErrorConnect(HomeAssistantError):
+    """Error to indicate we cannot connect."""
+
+
+class ErrorIpChanged(HomeAssistantError):
     """Error to indicate we cannot connect."""
 
 
@@ -295,8 +355,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             if (
                 instance["eojgc"] == 0x01 and instance["eojcc"] == 0x30
             ):  # HomeAirConditioner
+                ha_swing_list = []
                 for option in list(USER_OPTIONS.keys()):
                     if option in instance["setmap"]:
+                        if option in [ENL_AIR_VERT, ENL_AUTO_DIRECTION, ENL_SWING_MODE]:
+                            ha_swing_list.append(option)
                         option_default = []
                         if (
                             self._config_entry.options.get(
@@ -315,6 +378,35 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                                 ): cv.multi_select(USER_OPTIONS[option]["option_list"])
                             }
                         )
+
+                # Handle setting Climate entity UI swing mode
+                if len(ha_swing_list) > 0:
+                    option_list = {}
+                    for opt in ha_swing_list:
+                        option_list.update(USER_OPTIONS[opt]["option_list"])
+                    if ENL_AIR_VERT in instance["setmap"]:
+                        for del_key in [
+                            "auto",
+                            "non-auto",
+                            "auto-horiz",
+                            "not-used",
+                            "horiz",
+                            "vert-horiz",
+                        ]:
+                            option_list.pop(del_key, None)
+                    option_default = []
+                    if self._config_entry.options.get(OPTION_HA_UI_SWING) is not None:
+                        option_default = self._config_entry.options.get(
+                            OPTION_HA_UI_SWING
+                        )
+                    data_schema_structure.update(
+                        {
+                            vol.Optional(
+                                OPTION_HA_UI_SWING,
+                                default=option_default,
+                            ): cv.multi_select(option_list)
+                        }
+                    )
 
                 # Handle setting temperature ranges for various modes of operation
                 for option in list(TEMP_OPTIONS.keys()):

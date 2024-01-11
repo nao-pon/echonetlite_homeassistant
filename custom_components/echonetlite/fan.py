@@ -2,10 +2,7 @@ import logging
 
 from pychonet.EchonetInstance import ENL_GETMAP
 from pychonet.lib.eojx import EOJX_CLASS
-from homeassistant.components.fan import (
-    SUPPORT_PRESET_MODE,
-    FanEntity,
-)
+from homeassistant.components.fan import FanEntity, FanEntityFeature
 from homeassistant.const import (
     PRECISION_WHOLE,
 )
@@ -14,6 +11,10 @@ from .const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 ENL_FANSPEED = 0xA0
+ENL_FANSPEED_PERCENT = 0xF0
+ENL_FAN_DIRECTION = 0xF1
+ENL_FAN_OSCILLATION = 0xF2
+
 SUPPORT_FLAGS = 0
 
 DEFAULT_FAN_MODES = [
@@ -33,9 +34,9 @@ async def async_setup_entry(hass, config_entry, async_add_devices):
     """Set up entry."""
     entities = []
     for entity in hass.data[DOMAIN][config_entry.entry_id]:
-        if (
-            entity["instance"]["eojgc"] == 0x01 and entity["instance"]["eojcc"] == 0x35
-        ):  # Home Air Cleaner
+        if entity["instance"]["eojgc"] == 0x01 and (
+            entity["instance"]["eojcc"] == 0x35 or entity["instance"]["eojcc"] == 0x3A
+        ):  # Home Air Cleaner or Celing Fan
             entities.append(EchonetFan(config_entry.title, entity["echonetlite"]))
     async_add_devices(entities, True)
 
@@ -54,12 +55,22 @@ class EchonetFan(FanEntity):
         self._precision = 1.0
         self._target_temperature_step = 1
         self._support_flags = SUPPORT_FLAGS
-        self._support_flags = self._support_flags | SUPPORT_PRESET_MODE
+        if ENL_FANSPEED in list(self._connector._setPropertyMap):
+            self._support_flags = self._support_flags | FanEntityFeature.PRESET_MODE
+        if ENL_FANSPEED_PERCENT in list(self._connector._setPropertyMap):
+            self._support_flags = self._support_flags | FanEntityFeature.SET_SPEED
+        if ENL_FAN_DIRECTION in list(self._connector._setPropertyMap):
+            self._support_flags = self._support_flags | FanEntityFeature.DIRECTION
+        if ENL_FAN_OSCILLATION in list(self._connector._setPropertyMap):
+            self._support_flags = self._support_flags | FanEntityFeature.OSCILLATE
         self._olddata = {}
         self._should_poll = True
 
     async def async_update(self):
-        await self._connector.async_update()
+        try:
+            await self._connector.async_update()
+        except TimeoutError:
+            pass
 
     @property
     def supported_features(self):
@@ -133,6 +144,45 @@ class EchonetFan(FanEntity):
             else "unavailable"
         )
 
+    async def async_set_percentage(self, percentage: int) -> None:
+        """Set the speed percentage of the fan."""
+        await self._connector._instance.setFanSpeedPercent(percentage)
+        self._connector._update_data[ENL_FANSPEED_PERCENT] = percentage
+
+    @property
+    def percentage(self):
+        """Return the fan setting."""
+        return (
+            self._connector._update_data[ENL_FANSPEED_PERCENT]
+            if ENL_FANSPEED_PERCENT in self._connector._update_data
+            else "unavailable"
+        )
+
+    @property
+    def direction(self):
+        """Return the fan direction."""
+        return (
+            self._connector._update_data[ENL_FAN_DIRECTION]
+            if ENL_FAN_DIRECTION in self._connector._update_data
+            else "unavailable"
+        )
+
+    async def async_set_direction(self, direction: str) -> None:
+        await self._connector._instance.setFanDirection(direction)
+        self._connector._update_data[ENL_FAN_DIRECTION] = direction
+
+    @property
+    def oscillating(self):
+        """Return the fan oscillating."""
+        return (
+            self._connector._update_data[ENL_FAN_OSCILLATION]
+            if ENL_FAN_OSCILLATION in self._connector._update_data
+            else "unavailable"
+        )
+
+    async def async_oscillate(self, oscillating: bool) -> None:
+        await self._connector._instance.setFanOscillation(oscillating)
+
     @property
     def preset_modes(self):
         """Return the list of available fan modes."""
@@ -156,4 +206,7 @@ class EchonetFan(FanEntity):
             self._olddata = self._connector._update_data.copy()
             self.async_schedule_update_ha_state()
             if isPush:
-                await self._connector.async_update()
+                try:
+                    await self._connector.async_update()
+                except TimeoutError:
+                    pass

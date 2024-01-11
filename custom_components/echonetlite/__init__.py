@@ -11,6 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.util import Throttle
 from homeassistant.const import Platform
+from homeassistant.exceptions import ConfigEntryNotReady
 from .const import DOMAIN, USER_OPTIONS, TEMP_OPTIONS, CONF_FORCE_POLLING, MISC_OPTIONS
 from pychonet.lib.udpserver import UDPServer
 
@@ -144,7 +145,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.debug(
             f"Called unload_config_entry() try to remove {host} from server._state."
         )
-        server._state.pop(host)
+        if server._state.get(host):
+            server._state.pop(host)
 
     entry.async_on_unload(unload_config_entry)
 
@@ -238,10 +240,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
 
         echonetlite = ECHONETConnector(instance, hass.data[DOMAIN]["api"], entry)
-        await echonetlite.async_update()
-        hass.data[DOMAIN][entry.entry_id].append(
-            {"instance": instance, "echonetlite": echonetlite}
-        )
+        try:
+            await echonetlite.async_update()
+            hass.data[DOMAIN][entry.entry_id].append(
+                {"instance": instance, "echonetlite": echonetlite}
+            )
+        except (TimeoutError, asyncio.CancelledError) as ex:
+            raise ConfigEntryNotReady(
+                f"Connection error while connecting to {host}: {ex}"
+            ) from ex
+        except KeyError as ex:
+            raise ConfigEntryNotReady(
+                f"IP address change was detected during setup of {host}"
+            ) from ex
 
     _LOGGER.debug(f"Plaform entry data - {entry.data}")
 
@@ -434,41 +445,27 @@ class ECHONETConnector:
         return await self.async_update_data(kwargs=kwargs)
 
     async def async_update_data(self, kwargs):
-        for retry in range(1, 4):
-            update_data = {}
-            no_request = "no_request" in kwargs and kwargs["no_request"]
-            for flags in self._update_flag_batches:
-                batch_data = await self._instance.update(flags, no_request)
-                if batch_data is not False:
-                    if isinstance(batch_data, dict):
-                        update_data.update(batch_data)
-                    elif len(flags) == 1:
-                        update_data[flags[0]] = batch_data
-            _LOGGER.debug(
-                polling_update_debug_log(update_data, self._eojgc, self._eojcc)
-            )
-            # check if polling succeeded
-            polling_succeeded = False
-            for value in list(update_data.values()):
-                if value is not None:
-                    polling_succeeded = True
-            if len(update_data) > 0 and polling_succeeded == True:
-                # polling succeded.
-                if retry > 1:
-                    _LOGGER.debug(
-                        f"Polling ECHONET Instance host at {self._host} succeeded. Retry {retry} of 3"
-                    )
-                self._update_data.update(update_data)
-                return self._update_data
-            else:
-                _LOGGER.debug(
-                    f"Polling ECHONET Instance host {self._host} timed out. Retry {retry} of 3"
-                )
-                _LOGGER.debug(
-                    f"Number of missed ECHONETLite msssages since reboot is {len(self._api._message_list)}"
-                )
-        self._update_data.update(update_data)
-        return self._update_data
+        update_data = {}
+        no_request = "no_request" in kwargs and kwargs["no_request"]
+        for flags in self._update_flag_batches:
+            batch_data = await self._instance.update(flags, no_request)
+            if batch_data is not False:
+                if isinstance(batch_data, dict):
+                    update_data.update(batch_data)
+                elif len(flags) == 1:
+                    update_data[flags[0]] = batch_data
+        _LOGGER.debug(polling_update_debug_log(update_data, self._eojgc, self._eojcc))
+        # check if polling succeeded
+        polling_succeeded = False
+        for value in list(update_data.values()):
+            if value is not None:
+                polling_succeeded = True
+                break
+        if len(update_data) > 0 and polling_succeeded:
+            self._update_data.update(update_data)
+            return self._update_data
+        else:
+            raise TimeoutError("Polling request timeout.")
 
     async def async_update_callback(self, isPush=False):
         await self.async_update_data(kwargs={"no_request": True})
