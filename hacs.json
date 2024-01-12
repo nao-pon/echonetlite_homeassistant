@@ -1,5 +1,5 @@
 {
-  "name": "ECHONETLite Platform",
+  "name": "ECHONETLite Platform (nao-pon@edge)",
   "render_readme": true,
   "domains": ["climate", "sensor", "select", "light", "fan", "switch"],
   "homeassistant": "2024.1.0",
