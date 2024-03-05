@@ -22,9 +22,11 @@ from pychonet.lib.epc_functions import EPC_SUPER_FUNCTIONS, _hh_mm
 from . import get_name_by_epc_code, get_unit_by_devise_class
 from .const import (
     DOMAIN,
+    ENABLE_SUPER_ENERGY_DEFAULT,
     ENL_OP_CODES,
     CONF_STATE_CLASS,
     ENL_SUPER_CODES,
+    ENL_SUPER_ENERGES,
     NON_SETUP_SINGLE_ENYITY,
     TYPE_SWITCH,
     TYPE_SELECT,
@@ -34,6 +36,7 @@ from .const import (
     SERVICE_SET_INT_1B,
     ENL_STATUS,
     CONF_FORCE_POLLING,
+    CONF_ENABLE_SUPER_ENERGY,
     TYPE_DATA_DICT,
     TYPE_DATA_ARRAY_WITH_SIZE_OPCODE,
     CONF_DISABLED_DEFAULT,
@@ -71,7 +74,17 @@ async def async_setup_entry(hass, config, async_add_entities, discovery_info=Non
         )
         eojgc = entity["instance"]["eojgc"]
         eojcc = entity["instance"]["eojcc"]
-        _enl_op_codes = ENL_OP_CODES.get(eojgc, {}).get(eojcc, {}) | ENL_SUPER_CODES
+
+        if entity["echonetlite"]._user_options.get(
+            CONF_ENABLE_SUPER_ENERGY,
+            ENABLE_SUPER_ENERGY_DEFAULT.get(eojgc, {}).get(eojcc, False),
+        ):
+            _enl_super_codes = ENL_SUPER_CODES
+        else:
+            _enl_super_codes = {
+                k: v for k, v in ENL_SUPER_CODES.items() if not k in ENL_SUPER_ENERGES
+            }
+        _enl_op_codes = ENL_OP_CODES.get(eojgc, {}).get(eojcc, {}) | _enl_super_codes
         _epc_functions = (
             entity["echonetlite"]._instance.EPC_FUNCTIONS | EPC_SUPER_FUNCTIONS
         )
@@ -414,6 +427,11 @@ class EchonetSensor(SensorEntity):
             _force = bool(not self._attr_available and self._server_state["available"])
             self._state_value = new_val
             self._attr_native_value = self.get_attr_native_value()
+            if self._attr_available != self._server_state["available"]:
+                if self._server_state["available"]:
+                    self.update_option_listener()
+                else:
+                    self._attr_should_poll = True
             self._attr_available = self._server_state["available"]
             self.async_schedule_update_ha_state(_force)
 
