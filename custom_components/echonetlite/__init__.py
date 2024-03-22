@@ -30,6 +30,7 @@ from .const import (
     DOMAIN,
     ENABLE_SUPER_ENERGY_DEFAULT,
     ENL_OP_CODES,
+    ENL_SUPER_CODES,
     ENL_TIMER_SETTING,
     EPC_CODES_FOR_UPDATE,
     USER_OPTIONS,
@@ -68,11 +69,20 @@ PLATFORMS = [
     Platform.SWITCH,
     Platform.TIME,
     Platform.NUMBER,
+    Platform.COVER,
 ]
 PARALLEL_UPDATES = 0
 MIN_TIME_BETWEEN_UPDATES = timedelta(seconds=1)
 MAX_UPDATE_BATCH_SIZE = 10
 MIN_UPDATE_BATCH_SIZE = 3
+
+
+def get_device_name(connector, config) -> str:
+    if connector._name:
+        return connector._name
+    if connector._instance._eojci > 1:
+        return f"{config.title} {connector._instance._eojci}"
+    return config.title
 
 
 def get_name_by_epc_code(
@@ -538,6 +548,7 @@ class ECHONETConnector:
         # Some classes use predefined data (Narrowed down items)
         flags = EPC_CODES_FOR_UPDATE.get(self._eojgc, {}).get(self._eojcc, None)
         if flags != None:
+            flags = list(set(flags) | {ENL_STATUS} | set(ENL_SUPER_CODES.keys()))
             if not _enabled_super_energy:
                 flags = list(
                     set(flags) - {ENL_INSTANTANEOUS_POWER, ENL_CUMULATIVE_POWER}

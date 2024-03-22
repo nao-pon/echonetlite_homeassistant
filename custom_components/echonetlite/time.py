@@ -4,12 +4,14 @@ from datetime import time
 from homeassistant.const import CONF_ICON
 from homeassistant.components.time import TimeEntity
 from homeassistant.exceptions import InvalidStateError
-from . import get_name_by_epc_code
+from . import get_name_by_epc_code, get_device_name
 from .const import (
+    CONF_DISABLED_DEFAULT,
     DOMAIN,
     CONF_FORCE_POLLING,
     ENL_OP_CODES,
     ENL_SUPER_CODES,
+    NON_SETUP_SINGLE_ENYITY,
     TYPE_TIME,
 )
 from pychonet.lib.eojx import EOJX_CLASS
@@ -25,7 +27,10 @@ async def async_setup_entry(hass, config, async_add_entities, discovery_info=Non
         eojcc = entity["instance"]["eojcc"]
         _enl_op_codes = ENL_OP_CODES.get(eojgc, {}).get(eojcc, {}) | ENL_SUPER_CODES
         # configure select entities by looking up full ENL_OP_CODE dict
-        for op_code in entity["instance"]["setmap"]:
+        for op_code in list(
+            set(entity["instance"]["setmap"])
+            - NON_SETUP_SINGLE_ENYITY.get(eojgc, {}).get(eojcc, set())
+        ):
             epc_function_data = entity["echonetlite"]._instance.EPC_FUNCTIONS.get(
                 op_code, None
             )
@@ -40,7 +45,6 @@ async def async_setup_entry(hass, config, async_add_entities, discovery_info=Non
                         config,
                         op_code,
                         _enl_op_codes.get(op_code, {}),
-                        entity["echonetlite"]._name or config.title,
                     )
                 )
 
@@ -66,10 +70,14 @@ class EchonetTime(TimeEntity):
             else f"{self._connector._uid}-{self._code}"
         )
 
-        self._device_name = device_name
+        self._device_name = get_device_name(connector, config)
         self._attr_native_value = self.get_time()
         self._attr_should_poll = True
         self._attr_available = True
+
+        self._attr_entity_registry_enabled_default = not bool(
+            options.get(CONF_DISABLED_DEFAULT)
+        )
 
         self.update_option_listener()
 

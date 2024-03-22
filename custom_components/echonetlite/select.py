@@ -1,13 +1,15 @@
 import logging
 from homeassistant.const import CONF_ICON
 from homeassistant.components.select import SelectEntity
-from . import get_name_by_epc_code
+from . import get_name_by_epc_code, get_device_name
 from .const import (
+    CONF_DISABLED_DEFAULT,
     DOMAIN,
     CONF_FORCE_POLLING,
     ENL_OP_CODES,
     CONF_ICONS,
     TYPE_SELECT,
+    NON_SETUP_SINGLE_ENYITY,
 )
 from pychonet.lib.eojx import EOJX_CLASS
 from pychonet.lib.epc_functions import _swap_dict
@@ -21,11 +23,19 @@ async def async_setup_entry(hass, config, async_add_entities, discovery_info=Non
         eojgc = entity["instance"]["eojgc"]
         eojcc = entity["instance"]["eojcc"]
         _enl_op_codes = ENL_OP_CODES.get(eojgc, {}).get(eojcc, {})
+        _non_setup_single_entity = NON_SETUP_SINGLE_ENYITY.get(eojgc, {}).get(
+            eojcc, set()
+        )
         # configure select entities by looking up full ENL_OP_CODE dict
-        for op_code in entity["instance"]["setmap"]:
+        for op_code in list(
+            set(entity["instance"]["setmap"])
+            - NON_SETUP_SINGLE_ENYITY.get(eojgc, {}).get(eojcc, set())
+        ):
             epc_function_data = entity["echonetlite"]._instance.EPC_FUNCTIONS.get(
                 op_code, None
             )
+            if op_code in _non_setup_single_entity:
+                continue
             _by_epc_func = (
                 type(epc_function_data) == list
                 and type(epc_function_data[1]) == dict
@@ -40,7 +50,6 @@ async def async_setup_entry(hass, config, async_add_entities, discovery_info=Non
                         config,
                         op_code,
                         _enl_op_code_dict,
-                        entity["echonetlite"]._name or config.title,
                     )
                 )
 
@@ -50,8 +59,9 @@ async def async_setup_entry(hass, config, async_add_entities, discovery_info=Non
 class EchonetSelect(SelectEntity):
     _attr_translation_key = DOMAIN
 
-    def __init__(self, hass, connector, config, code, options, name=None):
+    def __init__(self, hass, connector, config, code, options):
         """Initialize the select."""
+        name = get_device_name(connector, config)
         self._connector = connector
         self._config = config
         self._code = code
@@ -84,6 +94,10 @@ class EchonetSelect(SelectEntity):
         self._attr_should_poll = True
         self._attr_available = True
         self._attr_force_update = False
+
+        self._attr_entity_registry_enabled_default = not bool(
+            options.get(CONF_DISABLED_DEFAULT)
+        )
 
         self.update_option_listener()
 
