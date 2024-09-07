@@ -23,17 +23,6 @@ from homeassistant.components.sensor import (
 from homeassistant.components.number.const import (
     NumberDeviceClass,
 )
-from pychonet.DistributionPanelMeter import (
-    ENL_DPM_CHANNEL_SIMPLEX_CUMULATIVE_ENG,
-    ENL_DPM_CHANNEL_SIMPLEX_INSTANT_ENG,
-    ENL_DPM_DAY_GET_HISTORY,
-    ENL_DPM_ENG_NOR,
-    ENL_DPM_ENG_REV,
-    ENL_DPM_ENG_UNIT,
-    ENL_DPM_INSTANT_CUR,
-    ENL_DPM_INSTANT_ENG,
-    ENL_DPM_INSTANT_VOL,
-)
 from pychonet.ElectricBlind import (
     ENL_OPENING_LEVEL,
     ENL_BLIND_ANGLE,
@@ -46,10 +35,6 @@ from pychonet.HomeAirConditioner import (
     ENL_AIR_VERT,
     ENL_AIR_HORZ,
     ENL_AUTO_DIRECTION,
-    ENL_HVAC_OUT_TEMP,
-    ENL_HVAC_ROOM_HUMIDITY,
-    ENL_HVAC_ROOM_TEMP,
-    ENL_HVAC_SET_HUMIDITY,
     ENL_HVAC_SET_TEMP,
     ENL_HVAC_SILENT_MODE,
     ENL_SWING_MODE,
@@ -60,17 +45,14 @@ from pychonet.HomeAirConditioner import (
     SWING_MODE,
 )
 from pychonet.EchonetInstance import ENL_STATUS, ENL_ON, ENL_OFF
-from pychonet.LightingSystem import ENL_SCENE, ENL_SCENE_MAX
-from pychonet.LowVoltageSmartElectricEnergyMeter import (
-    ENL_LVSEEM_COEF,
-    ENL_LVSEEM_ENG_NOR,
-    ENL_LVSEEM_ENG_REV,
-    ENL_LVSEEM_ENG_UNIT,
-    ENL_LVSEEM_INSTANT_CUR,
-    ENL_LVSEEM_INSTANT_ENG,
-)
 from pychonet.lib.const import ENL_CUMULATIVE_POWER, ENL_INSTANTANEOUS_POWER
 from pychonet.lib.epc_functions import DATA_STATE_CLOSE, DATA_STATE_OPEN
+
+from custom_components.echonetlite.fan import (
+    ENL_FAN_DIRECTION,
+    ENL_FAN_OSCILLATION,
+    ENL_FANSPEED_PERCENT,
+)
 
 DOMAIN = "echonetlite"
 CONF_STATE_CLASS = ATTR_STATE_CLASS
@@ -1208,6 +1190,8 @@ NON_SETUP_SINGLE_ENYITY = {
     0x01: {
         # Home Air Conditioner
         0x30: {ENL_HVAC_MODE, ENL_HVAC_SET_TEMP, ENL_HVAC_SILENT_MODE},
+        # Ceiling fan
+        0x3A: {ENL_FANSPEED_PERCENT, ENL_FAN_DIRECTION, ENL_FAN_OSCILLATION},
     },
     0x02: {
         0x60: {ENL_OPENING_LEVEL, ENL_BLIND_ANGLE, ENL_OPENCLOSE_STATUS},
@@ -1221,65 +1205,6 @@ NON_SETUP_SINGLE_ENYITY = {
         0x90: {ENL_BRIGHTNESS, ENL_COLOR_TEMP},
         # Single Function Lighting
         0x91: {ENL_BRIGHTNESS, ENL_COLOR_TEMP},
-    },
-}
-
-EPC_CODES_FOR_UPDATE = {
-    0x01: {
-        0x30: [
-            ENL_STATUS,
-            ENL_FANSPEED,
-            ENL_AUTO_DIRECTION,
-            ENL_SWING_MODE,
-            ENL_AIR_VERT,
-            ENL_AIR_HORZ,
-            ENL_HVAC_MODE,
-            ENL_HVAC_SET_TEMP,
-            ENL_HVAC_SET_HUMIDITY,
-            ENL_HVAC_ROOM_HUMIDITY,
-            ENL_HVAC_ROOM_TEMP,
-            ENL_HVAC_OUT_TEMP,
-            ENL_HVAC_SILENT_MODE,
-        ],
-    },
-    0x02: {
-        0x7D: [
-            0xA0,
-            0xA1,
-            0xA8,
-            0xA9,
-            0xCF,
-            0xD0,
-            0xD3,
-            0xD6,
-            0xD8,
-            0xE2,
-            0xE4,
-            0xE5,
-            0xE6,
-        ],
-        0x87: [
-            ENL_DPM_ENG_NOR,
-            ENL_DPM_ENG_REV,
-            ENL_DPM_ENG_UNIT,
-            ENL_DPM_DAY_GET_HISTORY,
-            ENL_DPM_INSTANT_ENG,
-            ENL_DPM_INSTANT_CUR,
-            ENL_DPM_INSTANT_VOL,
-            ENL_DPM_CHANNEL_SIMPLEX_CUMULATIVE_ENG,
-            ENL_DPM_CHANNEL_SIMPLEX_INSTANT_ENG,
-        ],
-        0x88: [
-            ENL_LVSEEM_ENG_NOR,
-            ENL_LVSEEM_ENG_REV,
-            ENL_LVSEEM_INSTANT_ENG,
-            ENL_LVSEEM_INSTANT_CUR,
-            ENL_LVSEEM_COEF,
-            ENL_LVSEEM_ENG_UNIT,
-        ],
-        0x90: [ENL_BRIGHTNESS, ENL_COLOR_TEMP],
-        0x91: [ENL_BRIGHTNESS],
-        0xA3: [ENL_SCENE, ENL_SCENE_MAX],
     },
 }
 
