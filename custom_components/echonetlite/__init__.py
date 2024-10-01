@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import logging
+from typing import Any
 import pychonet as echonet
 from pychonet.echonetapiclient import EchonetMaxOpcError
 from pychonet.lib.epc import EPC_SUPER, EPC_CODE
@@ -106,7 +107,7 @@ def get_name_by_epc_code(
         return name
 
 
-def polling_update_debug_log(values, eojgc, eojcc):
+def polling_update_debug_log(values: dict[int, Any], eojgc: int, eojcc: int):
     debug_log = f"\nECHONETlite polling update data:\n"
     for value in list(values.keys()):
         debug_log = (
@@ -195,8 +196,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data.setdefault(DOMAIN, {})
         hass.data[DOMAIN].update({entry.entry_id: []})
         udp = UDPServer()
-        loop = asyncio.get_event_loop()
-        udp.run("0.0.0.0", 3610, loop=loop)
+        udp.run("0.0.0.0", 3610, loop=hass.loop)
         server = ECHONETAPIClient(udp)
         server._debug_flag = True
         server._logger = _LOGGER.debug
@@ -536,10 +536,10 @@ class ECHONETConnector:
                 await asyncio.sleep(0.1)
             batch_data = await self._instance.update(flags, no_request)
             if batch_data is not False:
-                if isinstance(batch_data, dict):
-                    update_data.update(batch_data)
-                elif len(flags) == 1:
+                if len(flags) == 1:
                     update_data[flags[0]] = batch_data
+                elif isinstance(batch_data, dict):
+                    update_data.update(batch_data)
         _LOGGER.debug(polling_update_debug_log(update_data, self._eojgc, self._eojcc))
         if len(update_data) > 0:
             self._update_data.update(update_data)
