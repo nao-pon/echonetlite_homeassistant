@@ -11,6 +11,8 @@ This custom component makes use of the 'pychonet'
 Python3 library also maintained by this author.
 (https://github.com/scottyphillips/pychonet)
 
+*Important note - this repo is no longer in active developement, and i will no longer be actively involved in troubleshooting any issues with the component. However i will respond and approve PRs.
+
 **This component will set up the climate, fan, sensor, select and switch platforms.**
 
 # Current working systems:
@@ -113,9 +115,10 @@ If you have a firewall, ensure port 3610 is unblocked
 
 ## Installation
 ### Install using HACS
-1. Look up 'ECHONETLite Platform' in integrations
-2. Click 'Download', leave the version be and click 'Download' again.
-3. Restart Home Assistant
+1. Click the link below or look up 'ECHONETLite Platform' in integrations\
+   [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=scottyphillips&repository=echonetlite_homeassistant&category=integration)
+3. Click 'Download', leave the version be and click 'Download' again.
+4. Restart Home Assistant
 
 ### Install manually
 1. Using the tool of choice open the directory (folder) for your HA configuration (where you find `configuration.yaml`).
