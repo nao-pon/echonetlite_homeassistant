@@ -51,9 +51,25 @@ ECHONETLite互換機器で使用するためのHomeAssistantカスタムコン�
   * Z シリーズ
      * MSZ-ZW4022S
 
+* 三菱電機 MAC-900IF WiFi アダプターでコントロールされている以下の機器:
+  * Z シリーズ
+     * MSZ-ZW4024S
+  * XD シリーズ
+     * MSZ-XD2225
+  * R シリーズ
+     * MSZ-BKR2223
+
 * 三菱電機 REF-WLAN001 アダプターでコントロールされている以下の機器:
   * 冷蔵庫
      * MR-WZ55H
+
+* 富士通ゼネラル OP-J03DZ WiFi アダプターでコントロールされている以下の機器：
+  * エアコン
+    * 「ノクリア」Cシリーズ
+      * AS-C224R
+      * AS-C254R
+    * 「ノクリア」Vシリーズ
+      * AS-V173N2
 
 * 'MoekadenRoom' ECHONETLite シミュレーター: https://github.com/SonyCSL/MoekadenRoom
      * エアコンオブジェクト
@@ -69,6 +85,8 @@ ECHONETLite互換機器で使用するためのHomeAssistantカスタムコン�
          * AY-L40P
      * 加湿空気清浄機
          * KI-HS70
+     * 太陽光発電システム
+         * JH-RWL8
 
 * パナソニック
      *  エアコン
