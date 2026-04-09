@@ -256,18 +256,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(unload_config_entry)
 
     if DOMAIN in hass.data:  # maybe set up by config entry?
-        _LOGGER.debug("ECHONETlite platform is already started.")
+        _LOGGER.debug("Adding additional instance to existing ECHONETlite platform.")
         server = hass.data[DOMAIN]["api"]
         hass.data[DOMAIN].update({entry.entry_id: []})
     else:  # setup API
-        _LOGGER.debug("Starting up ECHONETlite platform..")
+        _LOGGER.debug("Starting up ECHONETlite platform.")
         _LOGGER.debug(f"pychonet version is {VERSION}")
         hass.data.setdefault(DOMAIN, {})
         hass.data[DOMAIN].update({entry.entry_id: []})
+
+        # instantiate pychonet API client and UDP server for receiving push notifications
         udp = UDPServer()
         udp.run("0.0.0.0", 3610, loop=hass.loop)
         server = ECHONETAPIClient(udp)
-        server._debug_flag = True
+        server._debug_flag = True  # Set pychonet debug flag to True to enable debug logging from the library
         server._logger = _LOGGER.debug
         server._message_timeout = 300
         server._discover_callback = discover_callback
@@ -284,6 +286,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         server._server.register_multicast_from_host(host)
 
         try:
+            # Echonet can be slow to respond, so we need to manage our setup budget carefully to avoid timeouts in Home Assistant.
             remaining = _remaining_setup_budget(started)
             if remaining < DISCOVERY_MIN_BUDGET:
                 raise ConfigEntryNotReady(
@@ -393,9 +396,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     }
                 }
             )
-        _LOGGER.debug("Instantiating a ECHONETConnector....")
+        _LOGGER.debug("Instantiating ECHONETConnector.")
         echonetlite = ECHONETConnector(instance, hass, entry)
         await echonetlite.startup()
+        # first refresh of data required by DataUpdateCoordinator to populate initial data and start polling.
         await echonetlite.async_config_entry_first_refresh()
         try:
             # Since there is a small chance of failure, perform a few retries for each instance.
@@ -411,7 +415,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 try:
                     await _run_with_timeout(
                         # echonetlite.async_config_entry_first_refresh(),
-                        echonetlite.async_update(),
+                        echonetlite._async_update_data(),
                         per_try_budget,
                     )
                     hass.data[DOMAIN][entry.entry_id].append(
@@ -546,6 +550,11 @@ class ECHONETConnector(DataUpdateCoordinator[dict]):
         # Store original instance config for reference
         self._instance_data = instance
 
+        # Initialize self.data for DataUpdateCoordinator with correct type hinting - this will be populated with EPC code keys in _make_update_flags_full_list()
+        self.data: dict[int, Any] = (
+            {}
+        )  
+
         # Core connector attributes - preserved from original implementation
         self.hass = hass
         self._entry = entry
@@ -578,7 +587,9 @@ class ECHONETConnector(DataUpdateCoordinator[dict]):
         # Update management - batch requests and flags
         self._update_flag_batches: list[list[int]] = []
         self._update_flags_full_list: list[int] = []
-        self._update_data: dict[int, Any] = {}
+        self._update_data: dict[int, Any] = (
+            {}
+        )  # Deprecated - use self.data from DataUpdateCoordinator instead
 
         # Callbacks for push notifications and option updates
         self._update_callbacks: list[callable] = []
@@ -691,10 +702,12 @@ class ECHONETConnector(DataUpdateCoordinator[dict]):
             ConfigEntryNotReady: If the device fails to respond within timeout.
         """
         _LOGGER.debug(f"Polling from Coordiantor with _async_update_data")
-        _LOGGER.debug(self.data)
+        _LOGGER.info(
+            f"Current self.data: {self.data}"
+        )  # setting to info so I dont have to enable debug logging.
         _LOGGER.debug("Coordinator Poll: %s listeners subscribed", len(self._listeners))
         try:
-            update_data = await self.async_update_data({})
+            update_data = await self.poll_pychonet({})
             return update_data
         except EchonetMaxOpcError as ex:
             # Adjust the maximum number of properties for batch requests when MPC error occurs
@@ -707,6 +720,7 @@ class ECHONETConnector(DataUpdateCoordinator[dict]):
                 batch_size_max - 1,
             )
             if batch_data_len >= batch_size_max:
+                # Below should be refactored to raise an exception and handle it in the caller to avoid returning stale data from self._update_data
                 _LOGGER.error(
                     f"The integration has adjusted the number of batch requests to "
                     f"{self._host} to {batch_size_max}, but no response is received. "
@@ -727,6 +741,7 @@ class ECHONETConnector(DataUpdateCoordinator[dict]):
             update_data = await self._async_update_data()
             return update_data
 
+    # Deprecate
     async def async_update(self, **kwargs):
         """Perform an immediate data update (bypassing coordinator polling).
 
@@ -737,7 +752,7 @@ class ECHONETConnector(DataUpdateCoordinator[dict]):
             **kwargs: Additional keyword arguments including 'no_request' to skip polling.
         """
         try:
-            await self.async_update_data(kwargs)
+            await self.poll_pychonet(kwargs)
         except EchonetMaxOpcError as ex:
             batch_size_max = self._user_options.get(
                 CONF_BATCH_SIZE_MAX, MAX_UPDATE_BATCH_SIZE
@@ -765,7 +780,7 @@ class ECHONETConnector(DataUpdateCoordinator[dict]):
 
             await self.async_update(**kwargs)
 
-    async def async_update_data(self, kwargs: dict) -> dict[int, Any]:
+    async def poll_pychonet(self, kwargs: dict) -> dict[int, Any]:
         """Execute the data fetch from device properties.
 
         This method performs batched property requests to minimize network traffic.
@@ -784,6 +799,7 @@ class ECHONETConnector(DataUpdateCoordinator[dict]):
             if i > 0:
                 # Add 100ms interval between batch requests to avoid overwhelming the device
                 await asyncio.sleep(0.1)
+            # Perform the batch update request for the current set of flags
             batch_data = await self._instance.update(flags, no_request)
             if batch_data is not False:
                 if len(flags) == 1:
@@ -792,21 +808,27 @@ class ECHONETConnector(DataUpdateCoordinator[dict]):
                     update_data.update(batch_data)
 
         _LOGGER.debug(polling_update_debug_log(update_data, self))
-        if len(update_data) > 0:
+        if (
+            len(update_data) > 0
+        ):  # This is probably no longer needed because we are going to use self.data from DataUpdateCoordinator
             self._update_data.update(update_data)
 
         return update_data.copy()
 
     async def async_update_callback(self, isPush: bool = False):
-        """Handle push notification updates from the ECHONET API.
+        _LOGGER.debug("received push notification update callback with isPush=%s", isPush)
+        
+        # 1. Get the new data from the push
+        new_data = await self.poll_pychonet(kwargs={"no_request": True})
+        
+        # 2. MERGE: Start with what we already know, then overwrite with the new bits
+        # self.data is the Coordinator's internal storage
+        combined_data = {**(self.data or {}), **(new_data or {})}
+        
+        # 3. Update the Coordinator (this resets the 30s timer and pings entities)
+        self.async_set_updated_data(combined_data)
 
-        This method is called when the device sends unsolicited updates via push notifications.
-        It triggers a no-request update to refresh local state without additional network traffic.
-
-        Args:
-            isPush: Flag indicating this was triggered by a push notification.
-        """
-        await self.async_update_data(kwargs={"no_request": True})
+        # 4. Clean up legacy callbacks
         for update_func in self._update_callbacks:
             await update_func(isPush)
 
@@ -849,8 +871,12 @@ class ECHONETConnector(DataUpdateCoordinator[dict]):
         for value in flags:
             if value in self._getPropertyMap:
                 self._update_flags_full_list.append(value)
-                self._update_data[value] = None
-
+                self._update_data[value] = (
+                    None  # Remove at some stage - use self.data from DataUpdateCoordinator instead
+                )
+                self.data[value] = (
+                    None  # This should instantiate self.data with the correct keys for DataUpdateCoordinator
+                )
         _LOGGER.debug(
             f"Echonet device {self._host}-{self._eojgc}-{self._eojcc}-{self._eojci} "
             f"update_flags_full_list: {self._update_flags_full_list}"
