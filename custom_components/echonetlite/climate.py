@@ -140,9 +140,9 @@ class EchonetClimate(ClimateEntity):
         self._attr_hvac_modes = DEFAULT_HVAC_MODES
         self._attr_preset_modes = DEFAULT_PRESET_MODES
         self._olddata = {}
-        # self._should_poll = True
+
         self._last_mode = HVACMode.OFF
-        # self._available = True
+
         self._attr_should_poll = True
         self._attr_available = True
 

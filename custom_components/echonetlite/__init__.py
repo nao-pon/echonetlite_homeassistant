@@ -671,7 +671,7 @@ class ECHONETConnector:
             ENABLE_SUPER_ENERGY_DEFAULT.get(self._eojgc, {}).get(self._eojcc, True),
         )
         # General purpose data items
-        flags = [ENL_STATUS, ENL_TIMER_SETTING]
+        flags = [] # PR 246
         if _enabled_super_energy:
             _enl_super_codes = ENL_SUPER_CODES
         else:

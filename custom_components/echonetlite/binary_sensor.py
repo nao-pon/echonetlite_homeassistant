@@ -261,13 +261,6 @@ class EchonetBinarySensor(BinarySensorEntity):
             self._attr_unique_id += f'-{self._sensor_attributes["accessor_index"]}'
             self._attr_name += f' {str(self._sensor_attributes["accessor_index"] + 1).zfill(len(str(self._sensor_attributes[TYPE_DATA_ARRAY_WITH_SIZE_OPCODE])))}'
 
-        # self._attr_native_unit_of_measurement = self._sensor_attributes.get(
-        #     CONF_UNIT_OF_MEASUREMENT
-        # )
-        # if not self._attr_native_unit_of_measurement:
-        #     self._attr_native_unit_of_measurement = get_unit_by_devise_class(
-        #         self._attr_device_class
-        #     )
         self._attr_entity_registry_enabled_default = not bool(
             self._sensor_attributes.get(CONF_DISABLED_DEFAULT)
         )
@@ -334,76 +327,6 @@ class EchonetBinarySensor(BinarySensorEntity):
 
             return _results.get(self._state_value)
 
-            # # interactive icon
-            # if CONF_ICON_POSITIVE in self._sensor_attributes:
-            #     if self._state_value is None and self._state_value > 0:
-            #         self._sensor_attributes[CONF_ICON] = self._sensor_attributes[
-            #             CONF_ICON_POSITIVE
-            #         ]
-            #     elif self._state_value is None and self._state_value < 0:
-            #         self._sensor_attributes[CONF_ICON] = self._sensor_attributes[
-            #             CONF_ICON_NEGATIVE
-            #         ]
-            #     else:
-            #         self._sensor_attributes[CONF_ICON] = self._sensor_attributes[
-            #             CONF_ICON_ZERO
-            #         ]
-
-            # # apply coefficients
-            # if (
-            #     CONF_MULTIPLIER in self._sensor_attributes
-            #     or CONF_MULTIPLIER_OPCODE in self._sensor_attributes
-            #     or CONF_MULTIPLIER_OPTIONAL_OPCODE in self._sensor_attributes
-            # ):
-            #     new_val = self._state_value
-            #     if CONF_MULTIPLIER in self._sensor_attributes:
-            #         new_val = new_val * self._sensor_attributes[CONF_MULTIPLIER]
-            #     if CONF_MULTIPLIER_OPCODE in self._sensor_attributes:
-            #         multiplier_opcode = self._sensor_attributes[CONF_MULTIPLIER_OPCODE]
-            #         if (
-            #             multiplier_opcode in self._connector._update_data
-            #             and self._connector._update_data[multiplier_opcode] is not None
-            #         ):
-            #             new_val = (
-            #                 new_val * self._connector._update_data[multiplier_opcode]
-            #             )
-            #         else:
-            #             return None
-            #     if CONF_MULTIPLIER_OPTIONAL_OPCODE in self._sensor_attributes:
-            #         multiplier_opcode = self._sensor_attributes[
-            #             CONF_MULTIPLIER_OPTIONAL_OPCODE
-            #         ]
-            #         if (
-            #             multiplier_opcode in self._connector._update_data
-            #             and self._connector._update_data[multiplier_opcode] is not None
-            #         ):
-            #             new_val = (
-            #                 new_val * self._connector._update_data[multiplier_opcode]
-            #             )
-            #     return new_val
-            # elif self._attr_device_class in [
-            #     SensorDeviceClass.TEMPERATURE,
-            #     SensorDeviceClass.HUMIDITY,
-            # ]:
-            #     if self._state_value in [126, 253]:
-            #         return None
-            #     else:
-            #         return self._state_value
-            # elif self._attr_device_class == SensorDeviceClass.POWER:
-            #     # Underflow (less than 1 W)
-            #     if self._state_value == 65534:
-            #         return 1
-            #     else:
-            #         return self._state_value
-            # elif self._op_code in self._connector._update_data:
-            #     if isinstance(self._state_value, (int, float)):
-            #         return self._state_value
-            #     if len(self._state_value) < 255:
-            #         return self._state_value
-            #     else:
-            #         return None
-        return None
-
     async def async_update(self):
         """Retrieve latest state."""
         try:
@@ -411,30 +334,6 @@ class EchonetBinarySensor(BinarySensorEntity):
             self._attr_is_on = self.get_attr_is_on()
         except TimeoutError:
             pass
-
-    # async def async_set_on_timer_time(self, timer_time):
-    #     val = str(timer_time).split(":")
-    #     mes = {"EPC": 0x91, "PDC": 0x02, "EDT": int(val[0]) * 256 + int(val[1])}
-    #     if await self._connector._instance.setMessages([mes]):
-    #         pass
-    #     else:
-    #         raise InvalidStateError(
-    #             "The state setting is not supported or is an invalid value."
-    #         )
-
-    # async def async_set_value_int_1b(self, value, epc=None):
-    #     if epc:
-    #         value = int(value)
-    #         if await self._connector._instance.setMessage(epc, value):
-    #             pass
-    #         else:
-    #             raise InvalidStateError(
-    #                 "The state setting is not supported or is an invalid value."
-    #             )
-    #     else:
-    #         raise NoEntitySpecifiedError(
-    #             "The required parameter EPC has not been specified."
-    #         )
 
     async def async_added_to_hass(self):
         """Register callbacks."""

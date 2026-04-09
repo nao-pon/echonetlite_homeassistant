@@ -154,8 +154,6 @@ class EchonetNumber(NumberEntity):
         if await self._connector._instance.setMessage(
             self._code, int(value + self._as_zero), self._byte_length
         ):
-            # self._connector._update_data[epc] = value
-            # self.async_write_ha_state()
             pass
         else:
             raise InvalidStateError(
