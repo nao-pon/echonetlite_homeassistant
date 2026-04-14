@@ -6,7 +6,6 @@ from homeassistant.core import callback
 from homeassistant.components.climate import (
     ClimateEntity,
 )
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.components.climate.const import (
     ATTR_HVAC_MODE,
     ClimateEntityFeature,
@@ -23,6 +22,8 @@ from homeassistant.helpers import entity_platform
 from pychonet.HomeAirConditioner import (
     AIRFLOW_VERT,
     ENL_AIR_VERT,
+    AIRFLOW_HORIZ,
+    ENL_AIR_HORZ,
     ENL_AUTO_DIRECTION,
     ENL_FANSPEED,
     ENL_HVAC_MODE,
@@ -39,6 +40,7 @@ from pychonet.lib.eojx import EOJX_CLASS
 
 from . import get_device_name
 from .const import DATA_STATE_ON, DOMAIN, OPTION_HA_UI_SWING
+from .base_entity import EchonetEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -56,6 +58,7 @@ DEFAULT_HVAC_MODES = [
 DEFAULT_SWING_MODES = ["auto-vert"] + list(
     AIRFLOW_VERT.keys()
 )  # ["auto-vert","upper","upper-central","central","lower-central","lower"]
+DEFAULT_SWING_HORIZ_MODES = list(AIRFLOW_HORIZ.keys())
 DEFAULT_PRESET_MODES = list(SILENT_MODE.keys())  # ["normal", "high-speed", "silent"]
 
 SERVICE_SET_HUMIDIFER_DURING_HEATER = "set_humidifier_during_heater"
@@ -85,26 +88,18 @@ async def async_setup_entry(hass, config_entry, async_add_devices):
     )
 
 
-class EchonetClimate(CoordinatorEntity, ClimateEntity):
+class EchonetClimate(EchonetEntity, ClimateEntity):
     """Representation of an ECHONETLite climate device."""
 
-    _attr_translation_key = DOMAIN
-
-    def __init__(self, connector, config):
+    def __init__(self, coordinator, config):
         """Initialize the climate device.
 
         Args:
             connector: The ECHONETConnector instance which is also a DataUpdateCoordinator.
             config: The config entry for this integration.
         """
-        super().__init__(connector)
-        name = get_device_name(connector, config)
-        self._attr_name = name
-        self._device_name = name
-        self._connector = connector
-        self._attr_unique_id = (
-            self._connector._uidi if self._connector._uidi else self._connector._uid
-        )
+        super().__init__(coordinator, config)
+        self._attr_unique_id = self._build_unique_id()
         # The temperature unit of echonet lite is defined as Celsius.
         # Set temperature_unit setting to Celsius,
         # HA's automatic temperature unit conversion function works correctly.
@@ -120,28 +115,31 @@ class EchonetClimate(CoordinatorEntity, ClimateEntity):
         self._attr_supported_features = (
             self._attr_supported_features | ClimateEntityFeature.TARGET_TEMPERATURE
         )
-        self._server_state = self._connector._api._state[
-            self._connector._instance._host
+        self._server_state = self.coordinator._api._state[
+            self.coordinator._instance._host
         ]
         self._opc_data = {
             ENL_AUTO_DIRECTION: list(
-                self._connector._instance.EPC_FUNCTIONS[ENL_AUTO_DIRECTION][1].values()
+                self.coordinator._instance.EPC_FUNCTIONS[ENL_AUTO_DIRECTION][1].values()
             ),
             ENL_SWING_MODE: list(
-                self._connector._instance.EPC_FUNCTIONS[ENL_SWING_MODE][1].values()
+                self.coordinator._instance.EPC_FUNCTIONS[ENL_SWING_MODE][1].values()
             ),
         }
-        if ENL_FANSPEED in list(self._connector._setPropertyMap):
+        if self.is_settable(ENL_FANSPEED):
             self._attr_supported_features = (
                 self._attr_supported_features | ClimateEntityFeature.FAN_MODE
             )
-        if ENL_AIR_VERT in list(
-            self._connector._setPropertyMap
-        ) or ENL_SWING_MODE in list(self._connector._setPropertyMap):
+        if self.is_settable(ENL_AIR_VERT) or self.is_settable(ENL_SWING_MODE):
             self._attr_supported_features = (
                 self._attr_supported_features | ClimateEntityFeature.SWING_MODE
             )
-        if ENL_HVAC_SILENT_MODE in list(self._connector._setPropertyMap):
+        if self.is_settable(ENL_AIR_HORZ):
+            self._attr_supported_features = (
+                self._attr_supported_features
+                | ClimateEntityFeature.SWING_HORIZONTAL_MODE
+            )
+        if self.is_settable(ENL_HVAC_SILENT_MODE):
             self._attr_supported_features = (
                 self._attr_supported_features | ClimateEntityFeature.PRESET_MODE
             )
@@ -151,7 +149,6 @@ class EchonetClimate(CoordinatorEntity, ClimateEntity):
 
         self._last_mode = HVACMode.OFF
 
-        self._attr_should_poll = False
         self._attr_available = True
 
         self.update_option_listener()
@@ -161,34 +158,9 @@ class EchonetClimate(CoordinatorEntity, ClimateEntity):
         self._enable_turn_on_off_backwards_compatibility = False
 
     @property
-    def device_info(self):
-        return {
-            "identifiers": {
-                (
-                    DOMAIN,
-                    self._connector._uid,
-                    self._connector._instance._eojgc,
-                    self._connector._instance._eojcc,
-                    self._connector._instance._eojci,
-                )
-            },
-            "name": self._device_name,
-            "manufacturer": self._connector._manufacturer
-            + (
-                " " + self._connector._host_product_code
-                if self._connector._host_product_code
-                else ""
-            ),
-            "model": EOJX_CLASS[self._connector._instance._eojgc][
-                self._connector._instance._eojcc
-            ],
-            # "sw_version": "",
-        }
-
-    @property
     def current_temperature(self) -> float | None:
         """Return the current room temperature."""
-        _val = self._connector.data.get(ENL_HVAC_ROOM_TEMP)
+        _val = self.coordinator.data.get(ENL_HVAC_ROOM_TEMP)
         # 0x7F: Overflow, 0x80: Underflow, 0x7E: Value cannot be returned
         if _val in {0x7F, 0x80, 0x7E}:
             return None
@@ -197,7 +169,7 @@ class EchonetClimate(CoordinatorEntity, ClimateEntity):
     @property
     def target_temperature(self) -> float | None:
         """Return the temperature we try to reach."""
-        _val = self._connector.data.get(ENL_HVAC_SET_TEMP)
+        _val = self.coordinator.data.get(ENL_HVAC_SET_TEMP)
         # -3: Rule of thumb, 0xFD: Temperature indeterminable
         if _val in {-3, 0xFD}:
             return None
@@ -206,38 +178,35 @@ class EchonetClimate(CoordinatorEntity, ClimateEntity):
     @property
     def target_humidity(self) -> int | None:
         """Return the target humidity."""
-        return self._connector.data.get(ENL_HVAC_SET_HUMIDITY)
+        return self.coordinator.data.get(ENL_HVAC_SET_HUMIDITY)
 
     @property
     def hvac_mode(self) -> HVACMode:
         """Return the current operation mode."""
-        _val = self._connector.data.get(ENL_HVAC_MODE)
-        
-        if self._connector.data[ENL_STATUS] != DATA_STATE_ON:
+        _val = self.coordinator.data.get(ENL_HVAC_MODE)
+
+        if self.coordinator.data[ENL_STATUS] != DATA_STATE_ON:
             return HVACMode.OFF
-        
+
         if _val == "auto":
             return HVACMode.HEAT_COOL
         elif _val == "other":
-            if self._connector._user_options.get(ENL_HVAC_MODE) == "as_idle":
+            if self.coordinator._user_options.get(ENL_HVAC_MODE) == "as_idle":
                 # Return last known mode when in 'other' state with as_idle option
-                return getattr(self, '_last_mode', HVACMode.OFF)
+                return getattr(self, "_last_mode", HVACMode.OFF)
             else:
                 return HVACMode.OFF
         else:
-            # Store the mode for later reference
-            # if hasattr(self, '_last_mode'):
-            #     self._last_mode = _val
             return _val
 
     @property
     def hvac_action(self) -> HVACAction:
         """Return the current HVAC action."""
-        if self._connector.data[ENL_STATUS] != DATA_STATE_ON:
+        if self.coordinator.data[ENL_STATUS] != DATA_STATE_ON:
             return HVACAction.OFF
-        
-        mode = self._connector.data.get(ENL_HVAC_MODE)
-        
+
+        mode = self.coordinator.data.get(ENL_HVAC_MODE)
+
         if mode == HVACMode.HEAT:
             return HVACAction.HEATING
         elif mode == HVACMode.COOL:
@@ -247,8 +216,8 @@ class EchonetClimate(CoordinatorEntity, ClimateEntity):
         elif mode == HVACMode.FAN_ONLY:
             return HVACAction.FAN
         elif mode in (HVACMode.HEAT_COOL, "auto"):
-            _room_temp = self._connector.data.get(ENL_HVAC_ROOM_TEMP)
-            set_temp = self._connector.data.get(ENL_HVAC_SET_TEMP)
+            _room_temp = self.coordinator.data.get(ENL_HVAC_ROOM_TEMP)
+            set_temp = self.coordinator.data.get(ENL_HVAC_SET_TEMP)
             if _room_temp is not None and set_temp is not None:
                 if set_temp < _room_temp:
                     return HVACAction.COOLING
@@ -256,7 +225,7 @@ class EchonetClimate(CoordinatorEntity, ClimateEntity):
                     return HVACAction.HEATING
             return HVACAction.IDLE
         elif mode == "other":
-            if self._connector._user_options.get(ENL_HVAC_MODE) == "as_idle":
+            if self.coordinator._user_options.get(ENL_HVAC_MODE) == "as_idle":
                 return HVACAction.IDLE
             else:
                 return HVACAction.OFF
@@ -267,80 +236,125 @@ class EchonetClimate(CoordinatorEntity, ClimateEntity):
     @property
     def is_on(self) -> bool:
         """Return true if the device is on."""
-        return self._connector.data[ENL_STATUS] == DATA_STATE_ON
+        return self.coordinator.data[ENL_STATUS] == DATA_STATE_ON
 
     @property
     def fan_mode(self) -> str | None:
         """Return the current fan mode."""
-        if ENL_FANSPEED in self._connector.data:
-            return self._connector.data[ENL_FANSPEED]
+        if ENL_FANSPEED in self.coordinator.data:
+            return self.coordinator.data[ENL_FANSPEED]
         return None
 
     @property
     def preset_mode(self) -> str | None:
         """Return the current preset mode (normal/high-speed/silent)."""
-        if ENL_HVAC_SILENT_MODE in self._connector.data:
-            return self._connector.data[ENL_HVAC_SILENT_MODE]
+        if ENL_HVAC_SILENT_MODE in self.coordinator.data:
+            return self.coordinator.data[ENL_HVAC_SILENT_MODE]
         return None
 
     @property
     def swing_mode(self) -> str | None:
         """Return the current swing mode."""
-        if self._connector.data.get(ENL_AUTO_DIRECTION) in getattr(self, '_attr_swing_modes', DEFAULT_SWING_MODES):
-            return self._connector.data.get(ENL_AUTO_DIRECTION)
-        elif self._connector.data.get(ENL_SWING_MODE) in getattr(self, '_attr_swing_modes', DEFAULT_SWING_MODES):
-            return self._connector.data.get(ENL_SWING_MODE)
+        if self.coordinator.data.get(ENL_AUTO_DIRECTION) in getattr(
+            self, "_attr_swing_modes", DEFAULT_SWING_MODES
+        ):
+            return self.coordinator.data.get(ENL_AUTO_DIRECTION)
+        elif self.coordinator.data.get(ENL_SWING_MODE) in getattr(
+            self, "_attr_swing_modes", DEFAULT_SWING_MODES
+        ):
+            return self.coordinator.data.get(ENL_SWING_MODE)
         else:
-            if ENL_AIR_VERT in self._connector.data:
-                return self._connector.data[ENL_AIR_VERT]
+            if ENL_AIR_VERT in self.coordinator.data:
+                return self.coordinator.data[ENL_AIR_VERT]
             return None
 
-    def _set_min_max_temp(self):
-        self._attr_min_temp = self._connector._user_options["min_temp_auto"]
-        self._attr_max_temp = self._connector._user_options["max_temp_auto"]
+    @property
+    def swing_horizontal_mode(self) -> str | None:
+        """Return the current horizontal swing mode."""
+        if self.coordinator.data.get(ENL_AUTO_DIRECTION) in getattr(
+            self, "_attr_swing_horizontal_modes", []
+        ):
+            return self.coordinator.data.get(ENL_AUTO_DIRECTION)
+        elif self.coordinator.data.get(ENL_SWING_MODE) in getattr(
+            self, "_attr_swing_horizontal_modes", []
+        ):
+            return self.coordinator.data.get(ENL_SWING_MODE)
+        else:
+            if ENL_AIR_HORZ in self.coordinator.data:
+                return self.coordinator.data[ENL_AIR_HORZ]
+            return None
 
-        if hasattr(self, "_attr_hvac_mode"):
-            """minimum/maximum temperature supported by the HVAC."""
-            if self._attr_hvac_mode == HVACMode.HEAT:
-                self._attr_min_temp = self._connector._user_options["min_temp_heat"]
-                self._attr_max_temp = self._connector._user_options["max_temp_heat"]
-            elif self._attr_hvac_mode == HVACMode.COOL:
-                self._attr_min_temp = self._connector._user_options["min_temp_cool"]
-                self._attr_max_temp = self._connector._user_options["max_temp_cool"]
+    @property
+    def swing_horizontal_mode(self) -> str | None:
+        """Return the current horizontal swing mode."""
+        return self.coordinator.data.get(ENL_AIR_HORZ)
+
+    @property
+    def min_temp(self) -> float:
+        """Return the minimum temperature based on current operation mode."""
+        mode = self.hvac_mode
+
+        if mode == HVACMode.HEAT:
+            return self.coordinator._user_options.get("min_temp_heat", 16)
+        if mode == HVACMode.COOL:
+            return self.coordinator._user_options.get("min_temp_cool", 18)
+
+        # Default/Auto (HEAT_COOL), DRY, FAN_ONLY, OFF ranges
+        return self.coordinator._user_options.get("min_temp_auto", 16)
+
+    @property
+    def max_temp(self) -> float:
+        """Return the maximum temperature based on current operation mode."""
+        mode = self.hvac_mode
+
+        if mode == HVACMode.HEAT:
+            return self.coordinator._user_options.get("max_temp_heat", 30)
+        if mode == HVACMode.COOL:
+            return self.coordinator._user_options.get("max_temp_cool", 27)
+
+        # Default/Auto (HEAT_COOL), DRY, FAN_ONLY, OFF ranges
+        return self.coordinator._user_options.get("max_temp_auto", 30)
 
     def _set_attrs(self):
-        """Update internal state and trigger min/max temp recalculation.
-        
-        Note: All climate attributes are now @property getters that compute values on demand.
+        """Update internal state.
+
+        Note: All climate attributes including min/max temperature are now @property
+        getters that compute values on demand based on current hvac_mode.
         This method is kept for backward compatibility and to handle side effects like
-        updating _last_mode and calling _set_min_max_temp().
+        updating _last_mode.
         """
         # Update _last_mode based on current hvac mode
-        if self._connector.data[ENL_STATUS] == DATA_STATE_ON:
-            mode = self._connector.data.get(ENL_HVAC_MODE)
+        if self.coordinator.data[ENL_STATUS] == DATA_STATE_ON:
+            mode = self.coordinator.data.get(ENL_HVAC_MODE)
             if mode and mode not in ("auto", "other"):
                 self._last_mode = mode
-        
-        # Trigger min/max temp recalculation based on current hvac_mode
-        self._set_min_max_temp()
 
     async def async_set_fan_mode(self, fan_mode):
         """Set new fan mode."""
         _LOGGER.debug(f"Updated fan mode is: {fan_mode}")
-        await self._connector._instance.setFanSpeed(fan_mode)
+        await self.coordinator._instance.setFanSpeed(fan_mode)
 
     async def async_set_preset_mode(self, preset_mode):
         """Set new preset mode - This is normal/high-speed/silent"""
-        await self._connector._instance.setSilentMode(preset_mode)
+        await self.coordinator._instance.setSilentMode(preset_mode)
 
     async def async_set_swing_mode(self, swing_mode):
         """Set new swing mode."""
         if swing_mode in self._opc_data[ENL_AUTO_DIRECTION]:
-            await self._connector._instance.setAutoDirection(swing_mode)
+            await self.coordinator._instance.setAutoDirection(swing_mode)
         elif swing_mode in self._opc_data[ENL_SWING_MODE]:
-            await self._connector._instance.setSwingMode(swing_mode)
+            await self.coordinator._instance.setSwingMode(swing_mode)
         else:
-            await self._connector._instance.setAirflowVert(swing_mode)
+            await self.coordinator._instance.setAirflowVert(swing_mode)
+
+    async def async_set_swing_horizontal_mode(self, swing_horizontal_mode):
+        """Set new horizontal swing mode."""
+        if swing_horizontal_mode in self._opc_data[ENL_AUTO_DIRECTION]:
+            await self._connector._instance.setAutoDirection(swing_horizontal_mode)
+        elif swing_horizontal_mode in self._opc_data[ENL_SWING_MODE]:
+            await self._connector._instance.setSwingMode(swing_horizontal_mode)
+        else:
+            await self._connector._instance.setAirflowHoriz(swing_horizontal_mode)
 
     async def async_set_temperature(self, **kwargs):
         """Set new target temperatures."""
@@ -351,52 +365,35 @@ class EchonetClimate(CoordinatorEntity, ClimateEntity):
 
         settemp = self._normalize_settemp(kwargs.get(ATTR_TEMPERATURE))
         if kwargs.get(ATTR_TEMPERATURE) is not None:
-            await self._connector._instance.setOperationalTemperature(settemp)
+            await self.coordinator._instance.setOperationalTemperature(settemp)
 
     async def async_set_humidity(self, humidity: int) -> None:
-        await self._connector._instance.setOperationalTemperature(humidity)
+        await self.coordinator._instance.setOperationalTemperature(humidity)
 
     async def async_set_hvac_mode(self, hvac_mode):
         """Set new operation mode (including off)"""
         if hvac_mode == "heat_cool":
-            await self._connector._instance.setMode("auto")
+            await self.coordinator._instance.setMode("auto")
         else:
-            await self._connector._instance.setMode(hvac_mode)
+            await self.coordinator._instance.setMode(hvac_mode)
 
     async def async_turn_on(self):
         """Turn on."""
-        await self._connector._instance.on()
+        await self.coordinator._instance.on()
 
     async def async_turn_off(self):
         """Turn off."""
-        await self._connector._instance.off()
+        await self.coordinator._instance.off()
 
     async def async_set_humidifier_during_heater(self, state, humidity):
         """Handle boost heating service call."""
-        await self._connector._instance.setHeaterHumidifier(state, humidity)
+        await self.coordinator._instance.setHeaterHumidifier(state, humidity)
 
     async def async_added_to_hass(self):
         """Register callbacks."""
         await super().async_added_to_hass()
-        self._connector.add_update_option_listener(self.update_option_listener)
-        # self._connector.register_async_update_callbacks(self.async_update_callback)
-
-
-    # disabling async_update_callback for now as DataUpdateCoordinator will handle update callbacks directly and to minimise changes, but keeping the function here for any future use if needed.
-    # async def async_update_callback(self, isPush: bool = False):
-    #     changed = (
-    #         self._olddata != self._connector.data
-    #         or self._attr_available != self._server_state["available"]
-    #     )
-    #     _LOGGER.debug(
-    #         f"Called async_update_callback on {self._device_name}.\nChanged: {changed}\nUpdate data: {self._connector.data}\nOld data: {self._olddata}"
-    #     )
-    #     if changed:
-    #         _force = bool(not self._attr_available and self._server_state["available"])
-    #         self._olddata = self._connector.data.copy()
-    #         self._attr_available = self._server_state["available"]
-    #         self._set_attrs()
-    #         self.async_schedule_update_ha_state(_force | isPush)
+        self.coordinator.add_update_option_listener(self.update_option_listener)
+        # self.coordinator.register_async_update_callbacks(self.async_update_callback)
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -406,31 +403,44 @@ class EchonetClimate(CoordinatorEntity, ClimateEntity):
         )
         # We update the local attributes from the central data.
         self._set_attrs()
-        
+
         # We use the Coordinator's availability status.
         self._attr_available = self.coordinator.last_update_success
-        
+
         # Inform HA that the state needs writing to the UI.
         self.async_write_ha_state()
 
     def update_option_listener(self):
+        """Update list of available fan and swing modes from options."""
+
         """list of available fan modes."""
-        _modes = self._connector._user_options.get(ENL_FANSPEED)
+        _modes = self.coordinator._user_options.get(ENL_FANSPEED)
         if _modes:
             self._attr_fan_modes = _modes
         else:
             self._attr_fan_modes = DEFAULT_FAN_MODES
 
-        """list of available swing modes."""
-        _modes = self._connector._user_options.get(OPTION_HA_UI_SWING)
+        """list of available swing modes (vertical)."""
+        # ⚠️ This only runs because feature detection already enabled SWING_MODE
+        _modes = self.coordinator._user_options.get(OPTION_HA_UI_SWING)
         if _modes and len(_modes):
             self._attr_swing_modes = _modes
-        elif _modes := self._connector._user_options.get(ENL_AIR_VERT):
+        elif _modes := self.coordinator._user_options.get(ENL_AIR_VERT):
             self._attr_swing_modes = _modes
         else:
             self._attr_swing_modes = DEFAULT_SWING_MODES
 
-        self._set_min_max_temp()
+        """list of available horizontal swing modes."""
+        # ✅ This check IS needed (horizontal is optional)
+        if self.is_settable(ENL_AIR_HORZ):
+            _modes = self.coordinator._user_options.get(ENL_AIR_HORZ)
+            if _modes and len(_modes):
+                self._attr_swing_horizontal_modes = _modes
+            elif _modes := self.coordinator._user_options.get(OPTION_HA_UI_SWING):
+                self._attr_swing_horizontal_modes = _modes
+            else:
+                self._attr_swing_horizontal_modes = DEFAULT_SWING_HORIZ_MODES
+
         if self.hass:
             self.async_schedule_update_ha_state()
 
